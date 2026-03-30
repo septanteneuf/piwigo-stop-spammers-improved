@@ -1,0 +1,4 @@
+File automatically created from SVN or Git repository.
+
+URL: https://github.com/plegall/Piwigo-stop_spammers 
+Revision: bf95e86bcc46d2a3eeef707ae490ef6c9f38aa4b (Tue May 31 07:25:13 2022 +0200)
