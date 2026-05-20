@@ -28,13 +28,20 @@ function stop_spammers_install()
   $query = '
 CREATE TABLE IF NOT EXISTS '.$prefixeTable.'stop_spammers (
   id int(11) NOT NULL AUTO_INCREMENT,
-  ip varchar(15) default NULL,
+  ip varchar(45) default NULL,
   blocker varchar(255) default NULL,
   since datetime not null,
   last_update datetime not null,
   occurrences int(11) not null,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  KEY ip (ip)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8
+;';
+  pwg_query($query);
+
+  $query = '
+ALTER TABLE '.$prefixeTable.'stop_spammers
+  MODIFY ip varchar(45) default NULL
 ;';
   pwg_query($query);
 }
