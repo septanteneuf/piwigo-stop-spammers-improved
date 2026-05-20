@@ -65,8 +65,68 @@ add_event_handler('user_comment_check', 'stop_spammers_checks', EVENT_HANDLER_PR
 add_event_handler('contact_form_check', 'stop_spammers_checks', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
 function stop_spammers_checks($action, $comment)
 {
-  global $page;
-  
+  global $page, $conf;
+
+  if (!empty($_POST['website_url']))
+  {
+    $page['errors'][] = l10n('Spam detected');
+    return 'reject';
+  }
+
+  if (!isset($conf['stop_spammers_max_links']))
+  {
+    $conf['stop_spammers_max_links'] = 2;
+  }
+
+  if (!isset($conf['stop_spammers_keywords']))
+  {
+    $conf['stop_spammers_keywords'] = array(
+      'ai ads',
+      'ai content',
+      'generate ai',
+      'publish easily',
+      'free tools',
+      'free plan',
+      'traffic',
+      'revenue',
+      'backlinks',
+      'seo',
+      'marketing',
+      'customers no longer',
+      'static websites',
+      'no obligations',
+      'unsubscribe',
+      'opt-out',
+      'bit.ly',
+      'systeme.io',
+    );
+  }
+
+  $content = stop_spammers_get_comment_content($comment);
+  $link_count = preg_match_all(
+    '#(?:https?://|www\.|(?:^|[\s<>\(\)\[\]"\'=])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?:/[^\s<>\)]*)?)#i',
+    $content
+  );
+
+  if ($link_count >= (int)$conf['stop_spammers_max_links'])
+  {
+    $page['errors'][] = l10n('Too many links');
+    return 'reject';
+  }
+
+  $content_lower = function_exists('mb_strtolower') ? mb_strtolower($content, 'UTF-8') : strtolower($content);
+
+  foreach ($conf['stop_spammers_keywords'] as $keyword)
+  {
+    $keyword_lower = function_exists('mb_strtolower') ? mb_strtolower($keyword, 'UTF-8') : strtolower($keyword);
+
+    if ($keyword_lower !== '' && strpos($content_lower, $keyword_lower) !== false)
+    {
+      $page['errors'][] = l10n('Spam detected');
+      return 'reject';
+    }
+  }
+
   if (!stop_spammers_check_stopforumspam())
   {
     $page['errors'][] = l10n('IP address rejected');
@@ -76,30 +136,55 @@ function stop_spammers_checks($action, $comment)
   return $action;
 }
 
-// Amelioratioj de la fonction
+function stop_spammers_get_comment_content($comment)
+{
+  if (is_string($comment))
+  {
+    return $comment;
+  }
+
+  $fields = array('content', 'comment', 'message', 'body', 'text');
+  if (is_array($comment))
+  {
+    foreach ($fields as $field)
+    {
+      if (isset($comment[$field]) && is_string($comment[$field]))
+      {
+        return $comment[$field];
+      }
+    }
+  }
+
+  foreach ($fields as $field)
+  {
+    if (isset($_POST[$field]) && is_string($_POST[$field]))
+    {
+      return $_POST[$field];
+    }
+  }
+
+  return '';
+}
+
 function stop_spammers_check_stopforumspam()
 {
   global $conf;
 
-  // utiliser un seui plus strict si l'on recoit encore du spam, descente a 20
   if (!isset($conf['stop_spammers_sfs_threshold']))
   {
     $conf['stop_spammers_sfs_threshold'] = 20;
   }
 
-  // Eviter de bloquer localement un IP pour toujours
   if (!isset($conf['stop_spammers_cache_days']))
   {
     $conf['stop_spammers_cache_days'] = 30;
   }
 
-  // Ajout d'une whitelist
   if (!isset($conf['stop_spammers_whitelist']))
   {
     $conf['stop_spammers_whitelist'] = array();
   }
 
-  // Verifier si IP recuperee est valide
   $ip = isset($_SERVER['REMOTE_ADDR']) ? trim($_SERVER['REMOTE_ADDR']) : '';
 
   if (!filter_var($ip, FILTER_VALIDATE_IP))
@@ -114,7 +199,6 @@ function stop_spammers_check_stopforumspam()
 
   list($dbnow) = pwg_db_fetch_row(pwg_query('SELECT NOW();'));
 
-  //Echapper l'IP dans la requette SQL 
   $query = '
 SELECT *
   FROM '.STOP_SPAMMERS_TABLE.'
@@ -151,10 +235,8 @@ WHERE id = '.(int)$blocked['id'].'
 
   include_once(PHPWG_ROOT_PATH.'admin/include/functions.php');
 
-// http pas idéal, au moins chiffrer éa requette
   $sfs_url = 'https://www.stopforumspam.com/api?ip='.urlencode($ip).'&f=serial&confidence';
 
-  // Gerer les erreur de l'API distante
   $result = null;
   $fetch_ok = fetchRemote($sfs_url, $result);
 
@@ -191,14 +273,3 @@ WHERE id = '.(int)$blocked['id'].'
 
   return true;
 }
-?>
-
-<!-- Config a ajouter dans local/config/config.inc.php
-
-$conf['stop_spammers_sfs_threshold'] = 20;
-$conf['stop_spammers_cache_days'] = 30;
-$conf['stop_spammers_whitelist'] = array(
-  '127.0.0.1',
-  '::1',
-  // 'IP.PUBLIQUE.ICI',
-); -->
