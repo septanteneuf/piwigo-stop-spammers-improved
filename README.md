@@ -67,18 +67,10 @@ Notes :
 ## Honeypot pour Contact Form
 
 Le contrôle serveur vérifie le champ POST `website_url`.
-Pour l'activer, ajouter ce champ dans le template du plugin ContactForm :
+Ce champ est maintenant injecté automatiquement dans le template ContactForm par un prefilter Smarty.
 
-```text
-plugins/ContactForm/template/contact_form.tpl
-```
-
-À placer juste après l'ouverture du formulaire :
-
-```html
-<form method="post" action="{$F_ACTION}">
-  <input type="text" name="website_url" value="" style="display:none" tabindex="-1" autocomplete="off">
-```
+Si le template ContactForm contient déjà ce champ manuellement, il peut être supprimé :
+le plugin le génère automatiquement.
 
 Un utilisateur normal ne voit pas ce champ. Beaucoup de robots le remplissent
 quand même ; dans ce cas le message est rejeté.
