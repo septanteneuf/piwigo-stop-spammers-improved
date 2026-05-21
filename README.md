@@ -1,126 +1,235 @@
-# Stop Spammers pour Piwigo
+# Stop Spammers for Piwigo
 
-Plugin Piwigo destiné à réduire le spam dans les commentaires et dans le plugin
-Contact Form. Cette version combine plusieurs protections :
+Improved anti-spam plugin for Piwigo comments and Contact Form.
 
-- vérification d'adresse IP avec StopForumSpam ;
-- cache local des IP bloquées ;
-- seuil de confiance configurable ;
-- whitelist d'IP ;
-- limite du nombre de liens dans le message ;
-- blocage par mots-clés ;
-- honeypot HTML pour le formulaire de contact.
+This version extends the original Stop Spammers plugin with several modern protections while keeping the plugin lightweight and privacy-friendly.
 
-## Installation
+---
 
-1. Copier le dossier du plugin dans `plugins/stop_spammers`.
-2. Activer le plugin depuis l'administration Piwigo.
-3. Vérifier que la table `*_stop_spammers` est créée ou mise à jour.
+# Features
 
-Le fichier `include/install.inc.php` crée la table de cache des IP bloquées.
-Le champ `ip` utilise `varchar(45)` pour accepter les IPv4 et les IPv6.
+## Existing protections
 
-## Configuration Piwigo
+- StopForumSpam IP reputation checks
+- Local cache for blocked IPs
 
-Ajouter les réglages dans `local/config/config.inc.php`.
+## Additional protections
 
-```php
-$conf['stop_spammers_sfs_threshold'] = 20;
-$conf['stop_spammers_cache_days'] = 30;
-$conf['stop_spammers_whitelist'] = array(
-  '127.0.0.1',
-  '::1',
-  // 'TON.IP.PUBLIQUE.ICI',
-);
+- HTTPS requests to StopForumSpam
+- Honeypot protection for Contact Form
+- Link count filtering
+- Spam keyword detection
+- Configurable whitelist
+- Configurable cache duration
+- Configurable StopForumSpam threshold
+- Complete administration interface inside Piwigo
 
-$conf['stop_spammers_max_links'] = 3;
-$conf['stop_spammers_keywords'] = array(
-  'ai ads',
-  'ai content',
-  'generate ai',
-  'publish easily',
-  'free tools',
-  'free plan',
-  'traffic',
-  'revenue',
-  'backlinks',
-  'seo',
-  'marketing',
-  'customers no longer',
-  'static websites',
-  'no obligations',
-  'unsubscribe',
-  'opt-out',
-  'bit.ly',
-  'systeme.io',
-);
+---
+
+# Installation
+
+1. Copy the plugin into:
+
+```text
+/plugins/stop_spammers/
 ```
 
-Notes :
+2. Activate the plugin from the Piwigo administration panel.
 
-- `stop_spammers_sfs_threshold` : seuil de confiance StopForumSpam. Plus il est bas, plus le filtrage est strict.
-- `stop_spammers_cache_days` : durée pendant laquelle une IP rejetée reste bloquée localement.
-- `stop_spammers_whitelist` : IP à ne jamais bloquer.
-- `stop_spammers_max_links` : nombre de liens à partir duquel le message est rejeté. Avec `3`, un message contenant 3 liens ou plus est rejeté.
-- `stop_spammers_keywords` : mots ou expressions qui provoquent un rejet si elles apparaissent dans le message.
+3. Open:
 
-## Honeypot pour Contact Form
+```text
+Administration → Plugins → Stop Spammers → Settings
+```
 
-Le contrôle serveur vérifie le champ POST `website_url`.
-Ce champ est maintenant injecté automatiquement dans le template ContactForm par un prefilter Smarty.
+4. Configure the plugin directly from the admin interface.
 
-Si le template ContactForm contient déjà ce champ manuellement, il peut être supprimé :
-le plugin le génère automatiquement.
+---
 
-Un utilisateur normal ne voit pas ce champ. Beaucoup de robots le remplissent
-quand même ; dans ce cas le message est rejeté.
+# Administration Interface
 
-## Fonctionnement
+The plugin now includes a full settings page directly inside Piwigo.
 
-Les contrôles sont exécutés dans `stop_spammers_checks()` avant l'appel distant
-à StopForumSpam :
+Available settings:
 
-1. si `website_url` est rempli, le message est rejeté ;
-2. le contenu du message est récupéré depuis le commentaire ou depuis `$_POST` ;
-3. les liens sont comptés, y compris les domaines sans `https://` comme `example.com` ;
-4. les mots-clés configurés sont recherchés ;
-5. StopForumSpam est consulté si les contrôles locaux n'ont pas déjà rejeté le message.
+| Setting | Description |
+|---|---|
+| StopForumSpam threshold | Spam confidence threshold |
+| Cache duration | Duration of local IP blocking |
+| Maximum links | Maximum links allowed before rejection |
+| Spam keywords | Blocked keywords and expressions |
+| IP whitelist | Trusted IP addresses |
 
-Le plugin écoute les hooks Piwigo suivants :
+No manual PHP configuration is required anymore.
+
+---
+
+# Honeypot Protection
+
+The plugin automatically injects a hidden honeypot field into Contact Form templates.
+
+Field name:
+
+```text
+website_url
+```
+
+Normal users never see this field, but many spambots automatically fill it.
+
+If the field is filled, the message is immediately rejected.
+
+No manual template modification is required.
+
+---
+
+# Link Filtering
+
+The plugin can reject messages containing too many links.
+
+Example:
+
+```text
+google.com apple.com microsoft.com
+```
+
+With a maximum link setting of `3`, the message is rejected.
+
+The detection works with:
+- https://example.com
+- www.example.com
+- example.com
+
+---
+
+# Keyword Filtering
+
+Messages containing configured keywords can be rejected automatically.
+
+Default examples:
+
+```text
+seo
+marketing
+backlinks
+systeme.io
+bit.ly
+traffic
+ai ads
+```
+
+Keyword matching is case-insensitive.
+
+---
+
+# StopForumSpam
+
+The plugin queries:
+
+```text
+https://www.stopforumspam.com/
+```
+
+using the visitor IP address.
+
+Blocked IPs are cached locally to reduce external requests.
+
+IPv4 and IPv6 are both supported.
+
+---
+
+# Technical Notes
+
+## Hooks used
 
 ```php
 user_comment_check
 contact_form_check
 ```
 
-Il protège donc les commentaires Piwigo et les messages envoyés avec ContactForm,
-à condition que ContactForm déclenche bien `contact_form_check`.
+The plugin protects:
+- native Piwigo comments
+- Contact Form messages
 
-## Tests rapides
+provided that Contact Form triggers `contact_form_check`.
 
-Après déploiement :
+---
 
-1. Envoyer un message normal avec peu ou pas de liens : il doit passer.
-2. Envoyer un message avec 3 domaines ou plus, par exemple :
+# Default Values
 
-   ```text
-   septanteneuf.ch officia.ch google.com apple.ch
-   ```
+| Setting | Default |
+|---|---|
+| StopForumSpam threshold | 20 |
+| Cache duration | 30 days |
+| Maximum links | 2 |
 
-   Avec `$conf['stop_spammers_max_links'] = 3`, il doit être rejeté.
+---
 
-3. Envoyer un message contenant un mot-clé comme `systeme.io` ou `backlinks` :
-   il doit être rejeté.
-4. Tester le honeypot en forçant `website_url` dans le formulaire : il doit être rejeté.
+# Compatibility
 
-## Dépannage
+Tested with:
+- modern Piwigo versions
+- PHP 7+
+- PHP 8+
 
-- Si le filtrage par liens ne semble pas fonctionner, vérifier que la version de
-  `main.inc.php` contient bien le compteur qui détecte aussi les domaines nus.
-- Si le honeypot ne fonctionne pas, vérifier que `website_url` est présent dans
-  le HTML final du formulaire ContactForm.
-- Si une IP légitime est bloquée, l'ajouter dans `stop_spammers_whitelist`.
-- Si le site affiche une erreur PHP après modification de `config.inc.php`,
-  vérifier qu'il ne contient que du PHP valide et pas de texte explicatif collé
-  en dehors de commentaires.
+---
 
+# Philosophy
+
+This plugin intentionally avoids:
+- Google reCAPTCHA
+- Cloudflare Turnstile
+- external JavaScript dependencies
+
+Goals:
+- lightweight
+- privacy-friendly
+- simple to maintain
+- no external frontend dependencies
+
+---
+
+# Troubleshooting
+
+## Honeypot not working
+
+Check that the generated HTML contains:
+
+```html
+<input type="text" name="website_url">
+```
+
+---
+
+## False positives
+
+Add the IP address to the whitelist in plugin settings.
+
+---
+
+## Link filtering seems too strict
+
+Increase:
+- Maximum links
+
+from the administration panel.
+
+---
+
+## Spam still passes
+
+Try:
+- lowering the StopForumSpam threshold
+- adding more spam keywords
+- reducing maximum allowed links
+
+---
+
+# Credits
+
+Original plugin by:
+- Pierrick Le Gall (plg)
+
+Improved edition:
+- additional anti-spam protections
+- administration interface
+- modernized filtering system

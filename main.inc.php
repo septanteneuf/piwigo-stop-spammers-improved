@@ -1,11 +1,11 @@
 <?php
 /*
 Plugin Name: Stop Spammers
-Version: 14.a
+Version: 1.2
 Description: Fight against spammers
-Plugin URI: http://piwigo.org/ext/extension_view.php?eid=721
+Plugin original URI: http://piwigo.org/ext/extension_view.php?eid=721
 Author: plg
-Author URI: http://le-gall.net/pierrick
+Author URI: https://github.com/septanteneuf/piwigo-stop-spammers-improved/
 */
 
 if (!defined('PHPWG_ROOT_PATH'))
@@ -15,57 +15,77 @@ if (!defined('PHPWG_ROOT_PATH'))
 
 global $prefixeTable;
 
-// +-----------------------------------------------------------------------+
-// | Define plugin constants                                               |
-// +-----------------------------------------------------------------------+
-
 defined('STOP_SPAMMERS_ID') or define('STOP_SPAMMERS_ID', basename(dirname(__FILE__)));
-define('STOP_SPAMMERS_PATH' , PHPWG_PLUGINS_PATH.basename(dirname(__FILE__)).'/');
+define('STOP_SPAMMERS_PATH', PHPWG_PLUGINS_PATH.basename(dirname(__FILE__)).'/');
 define('STOP_SPAMMERS_TABLE', $prefixeTable.'stop_spammers');
 define('STOP_SPAMMERS_VERSION', '14.a');
 
-// init the plugin
 add_event_handler('init', 'stop_spammers_init');
-/**
- * plugin initialization
- *   - check for upgrades
- *   - unserialize configuration
- *   - load language
- */
+add_event_handler('user_comment_check', 'stop_spammers_checks', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
+add_event_handler('contact_form_check', 'stop_spammers_checks', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
+add_event_handler('get_admin_plugin_menu_links', 'stop_spammers_admin_menu');
+
 function stop_spammers_init()
 {
-  global $conf, $user, $pwg_loaded_plugins;
+  global $pwg_loaded_plugins, $template;
 
-  // apply upgrade if needed
   if (
-    STOP_SPAMMERS_VERSION == 'auto' or
-    $pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'] == 'auto' or
-    version_compare($pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'], STOP_SPAMMERS_VERSION, '<')
+    STOP_SPAMMERS_VERSION == 'auto'
+    or $pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'] == 'auto'
+    or version_compare($pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'], STOP_SPAMMERS_VERSION, '<')
   )
   {
-    // call install function
     include_once(STOP_SPAMMERS_PATH.'include/install.inc.php');
     stop_spammers_install();
 
-    // update plugin version in database
-    if ( $pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'] != 'auto' and STOP_SPAMMERS_VERSION != 'auto' )
+    if ($pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'] != 'auto' and STOP_SPAMMERS_VERSION != 'auto')
     {
-      $query = '
-UPDATE '. PLUGINS_TABLE .'
-SET version = "'. STOP_SPAMMERS_VERSION .'"
-WHERE id = "'. STOP_SPAMMERS_ID .'"';
-      pwg_query($query);
+      pwg_query('
+UPDATE '.PLUGINS_TABLE.'
+SET version = "'.STOP_SPAMMERS_VERSION.'"
+WHERE id = "'.STOP_SPAMMERS_ID.'"
+;');
 
       $pwg_loaded_plugins[STOP_SPAMMERS_ID]['version'] = STOP_SPAMMERS_VERSION;
     }
   }
+
+  if (isset($template) && method_exists($template, 'register_prefilter'))
+  {
+    $template->register_prefilter('stop_spammers_contact_form_prefilter');
+  }
 }
 
-add_event_handler('user_comment_check', 'stop_spammers_checks', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
-add_event_handler('contact_form_check', 'stop_spammers_checks', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
+function stop_spammers_admin_menu($menu)
+{
+  $menu[] = array(
+    'NAME' => 'Stop Spammers',
+    'URL' => get_admin_plugin_menu_link(STOP_SPAMMERS_PATH.'admin.php'),
+  );
+
+  return $menu;
+}
+
+function stop_spammers_contact_form_prefilter($tpl_source)
+{
+  if (strpos($tpl_source, 'name="website_url"') !== false)
+  {
+    return $tpl_source;
+  }
+
+  return preg_replace(
+    '#(<form[^>]*method=["\']post["\'][^>]*action=["\']\{\$F_ACTION\}["\'][^>]*>)#i',
+    '$1'."\n".'<input type="text" name="website_url" value="" style="display:none" tabindex="-1" autocomplete="off">',
+    $tpl_source,
+    1
+  );
+}
+
 function stop_spammers_checks($action, $comment)
 {
   global $page, $conf;
+
+  stop_spammers_load_defaults($conf);
 
   if (!empty($_POST['website_url']))
   {
@@ -73,36 +93,8 @@ function stop_spammers_checks($action, $comment)
     return 'reject';
   }
 
-  if (!isset($conf['stop_spammers_max_links']))
-  {
-    $conf['stop_spammers_max_links'] = 2;
-  }
-
-  if (!isset($conf['stop_spammers_keywords']))
-  {
-    $conf['stop_spammers_keywords'] = array(
-      'ai ads',
-      'ai content',
-      'generate ai',
-      'publish easily',
-      'free tools',
-      'free plan',
-      'traffic',
-      'revenue',
-      'backlinks',
-      'seo',
-      'marketing',
-      'customers no longer',
-      'static websites',
-      'no obligations',
-      'unsubscribe',
-      'opt-out',
-      'bit.ly',
-      'systeme.io',
-    );
-  }
-
   $content = stop_spammers_get_comment_content($comment);
+
   $link_count = preg_match_all(
     '#(?:https?://|www\.|(?:^|[\s<>\(\)\[\]"\'=])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?:/[^\s<>\)]*)?)#i',
     $content
@@ -136,6 +128,68 @@ function stop_spammers_checks($action, $comment)
   return $action;
 }
 
+function stop_spammers_load_defaults(&$conf)
+{
+  if (!isset($conf['stop_spammers_sfs_threshold']))
+  {
+    $conf['stop_spammers_sfs_threshold'] = 20;
+  }
+
+  if (!isset($conf['stop_spammers_cache_days']))
+  {
+    $conf['stop_spammers_cache_days'] = 30;
+  }
+
+  if (!isset($conf['stop_spammers_max_links']))
+  {
+    $conf['stop_spammers_max_links'] = 2;
+  }
+
+  if (!isset($conf['stop_spammers_keywords']))
+  {
+    $conf['stop_spammers_keywords'] = stop_spammers_default_keywords();
+  }
+  elseif (is_string($conf['stop_spammers_keywords']))
+  {
+    $tmp = @unserialize($conf['stop_spammers_keywords']);
+    $conf['stop_spammers_keywords'] = is_array($tmp) ? $tmp : stop_spammers_default_keywords();
+  }
+
+  if (!isset($conf['stop_spammers_whitelist']))
+  {
+    $conf['stop_spammers_whitelist'] = array();
+  }
+  elseif (is_string($conf['stop_spammers_whitelist']))
+  {
+    $tmp = @unserialize($conf['stop_spammers_whitelist']);
+    $conf['stop_spammers_whitelist'] = is_array($tmp) ? $tmp : array();
+  }
+}
+
+function stop_spammers_default_keywords()
+{
+  return array(
+    'ai ads',
+    'ai content',
+    'generate ai',
+    'publish easily',
+    'free tools',
+    'free plan',
+    'traffic',
+    'revenue',
+    'backlinks',
+    'seo',
+    'marketing',
+    'customers no longer',
+    'static websites',
+    'no obligations',
+    'unsubscribe',
+    'opt-out',
+    'bit.ly',
+    'systeme.io',
+  );
+}
+
 function stop_spammers_get_comment_content($comment)
 {
   if (is_string($comment))
@@ -144,6 +198,7 @@ function stop_spammers_get_comment_content($comment)
   }
 
   $fields = array('content', 'comment', 'message', 'body', 'text');
+
   if (is_array($comment))
   {
     foreach ($fields as $field)
@@ -170,20 +225,7 @@ function stop_spammers_check_stopforumspam()
 {
   global $conf;
 
-  if (!isset($conf['stop_spammers_sfs_threshold']))
-  {
-    $conf['stop_spammers_sfs_threshold'] = 20;
-  }
-
-  if (!isset($conf['stop_spammers_cache_days']))
-  {
-    $conf['stop_spammers_cache_days'] = 30;
-  }
-
-  if (!isset($conf['stop_spammers_whitelist']))
-  {
-    $conf['stop_spammers_whitelist'] = array();
-  }
+  stop_spammers_load_defaults($conf);
 
   $ip = isset($_SERVER['REMOTE_ADDR']) ? trim($_SERVER['REMOTE_ADDR']) : '';
 
@@ -217,20 +259,18 @@ SELECT *
         STOP_SPAMMERS_TABLE,
         array(
           'last_update' => $dbnow,
-          'occurrences' => $blocked['occurrences'] + 1
+          'occurrences' => $blocked['occurrences'] + 1,
         ),
         array('id' => $blocked['id'])
       );
 
       return false;
     }
-    else
-    {
-      pwg_query('
+
+    pwg_query('
 DELETE FROM '.STOP_SPAMMERS_TABLE.'
 WHERE id = '.(int)$blocked['id'].'
 ;');
-    }
   }
 
   include_once(PHPWG_ROOT_PATH.'admin/include/functions.php');
@@ -247,28 +287,25 @@ WHERE id = '.(int)$blocked['id'].'
 
   $result = @unserialize($result);
 
-  if (!is_array($result))
+  if (!is_array($result) || !isset($result['ip']['confidence']))
   {
     return true;
   }
 
-  if (isset($result['ip']['confidence']))
+  if ((float)$result['ip']['confidence'] > (float)$conf['stop_spammers_sfs_threshold'])
   {
-    if ((float)$result['ip']['confidence'] > (float)$conf['stop_spammers_sfs_threshold'])
-    {
-      single_insert(
-        STOP_SPAMMERS_TABLE,
-        array(
-          'ip' => $ip,
-          'blocker' => 'stopforumspam',
-          'since' => $dbnow,
-          'last_update' => $dbnow,
-          'occurrences' => 1,
-        )
-      );
+    single_insert(
+      STOP_SPAMMERS_TABLE,
+      array(
+        'ip' => $ip,
+        'blocker' => 'stopforumspam',
+        'since' => $dbnow,
+        'last_update' => $dbnow,
+        'occurrences' => 1,
+      )
+    );
 
-      return false;
-    }
+    return false;
   }
 
   return true;
